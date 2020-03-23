@@ -22,12 +22,10 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/google/subcommands"
-
-	"go.felesatra.moe/dlsite"
-	"go.felesatra.moe/dlsite/cache"
+	"go.felesatra.moe/dlsite/v2"
+	"go.felesatra.moe/dlsite/v2/codes"
 )
 
 type orgCmd struct {
@@ -57,7 +55,7 @@ func (c *orgCmd) Execute(ctx context.Context, f *flag.FlagSet, _ ...interface{})
 		var err error
 		dir, err = os.Getwd()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Could not get current directory: %s", err)
+			log.Printf("Could not get current directory: %s", err)
 			return subcommands.ExitFailure
 		}
 	case 1:
@@ -67,7 +65,7 @@ func (c *orgCmd) Execute(ctx context.Context, f *flag.FlagSet, _ ...interface{})
 		return subcommands.ExitUsageError
 	}
 	if err := orgMain(dir, c.dry, c.all, c.desc); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+		log.Printf("Error: %s", err)
 		return subcommands.ExitFailure
 	}
 	return subcommands.ExitSuccess
@@ -84,14 +82,14 @@ func orgMain(dir string, dry, all, desc bool) error {
 	if err != nil {
 		return fmt.Errorf("find works: %w", err)
 	}
-	c, err := cache.OpenDefault()
+	df, err := dlsite.NewFetcher()
 	if err != nil {
-		return fmt.Errorf("open cache: %w", err)
+		return fmt.Errorf("fetch work info: %w", err)
 	}
-	defer c.Close()
+	defer df.FlushCache()
 	for _, w := range w {
 		log.Printf("Organizing %s", w)
-		err := organizeWork(c, dir, w, dry, desc)
+		err := organizeWork(df, dir, w, dry, desc)
 		if err != nil {
 			return err
 		}
@@ -114,7 +112,7 @@ func findWorks(dir string) ([]relPath, error) {
 	}
 	var w []relPath
 	for _, fi := range fi {
-		if dlsite.Parse(fi.Name()) != "" {
+		if codes.ParseRJCode(fi.Name()) != "" {
 			w = append(w, relPath(fi.Name()))
 		}
 	}
@@ -132,7 +130,7 @@ func findAllWorks(dir string) ([]relPath, error) {
 		if !info.IsDir() {
 			return nil
 		}
-		if dlsite.Parse(info.Name()) != "" {
+		if codes.ParseRJCode(info.Name()) != "" {
 			// path has dir as a prefix plus a slash: dir/some/path
 			p := path[len(dir)+1:]
 			w = append(w, relPath(p))
@@ -149,8 +147,8 @@ func findAllWorks(dir string) ([]relPath, error) {
 // organizeWork organizes the work with the given path relative to the
 // top directory.  This involves moving it to the correct path and
 // possibly adding some files.
-func organizeWork(c *cache.Cache, topdir string, p relPath, dry, desc bool) error {
-	w, err := getDirWork(c, string(p))
+func organizeWork(f *dlsite.Fetcher, topdir string, p relPath, dry, desc bool) error {
+	w, err := getDirWork(f, string(p))
 	if err != nil {
 		return fmt.Errorf("get work info: %w", err)
 	}
@@ -180,8 +178,8 @@ func organizeWork(c *cache.Cache, topdir string, p relPath, dry, desc bool) erro
 // workPath returns the desired path for a work.
 func workPath(w *dlsite.Work) relPath {
 	// Empty parts are ignored by Join.
-	return relPath(filepath.Join(escapeFilename(w.Maker), escapeFilename(w.Series),
-		escapeFilename(fmt.Sprintf("%s %s", w.RJCode, w.Name))))
+	return relPath(filepath.Join(escapeFilename(w.Circle), escapeFilename(w.Series),
+		escapeFilename(fmt.Sprintf("%s %s", w.Code, w.Title))))
 }
 
 func renameWork(top string, old, new relPath) error {
@@ -197,8 +195,7 @@ func renameWork(top string, old, new relPath) error {
 }
 
 const (
-	descFile  = "dlsite-description.txt"
-	trackFile = "dlsite-tracklist.txt"
+	descFile = "dlsite-description.txt"
 )
 
 func addDLSiteFiles(w *dlsite.Work, p string) error {
@@ -212,23 +209,6 @@ func addDLSiteFiles(w *dlsite.Work, p string) error {
 			return nil
 		}
 		if err := ioutil.WriteFile(fp, []byte(w.Description), 0666); err != nil {
-			return err
-		}
-	}
-	if len(w.TrackList) != 0 {
-		fp := filepath.Join(p, trackFile)
-		ok, err := fileExists(fp)
-		if err != nil {
-			return err
-		}
-		if ok {
-			return nil
-		}
-		var b strings.Builder
-		for i, t := range w.TrackList {
-			b.WriteString(fmt.Sprintf("%d. %s %s\n", i, t.Name, t.Text))
-		}
-		if err := ioutil.WriteFile(fp, []byte(b.String()), 0666); err != nil {
 			return err
 		}
 	}
@@ -249,20 +229,11 @@ func fileExists(p string) (ok bool, err error) {
 
 // getDirWork returns the dlsite.Work for the given directory.  Only
 // the directory filename is used.
-func getDirWork(c *cache.Cache, p string) (*dlsite.Work, error) {
+func getDirWork(f *dlsite.Fetcher, p string) (*dlsite.Work, error) {
 	fn := filepath.Base(p)
-	r := dlsite.Parse(fn)
+	r := codes.ParseRJCode(fn)
 	if r == "" {
 		return nil, fmt.Errorf("invalid work filename %s", fn)
 	}
-	w, err := c.Get(r)
-	if err == nil {
-		return w, nil
-	}
-	log.Printf("Could not get %s from cache: %s", r, err)
-	w, err = dlsite.Fetch(r)
-	if err != nil {
-		return nil, err
-	}
-	return w, nil
+	return f.FetchWork(codes.WorkCode(r))
 }

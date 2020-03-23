@@ -18,14 +18,15 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/google/subcommands"
 
-	"go.felesatra.moe/dlsite"
-	"go.felesatra.moe/dlsite/dsutil"
+	"go.felesatra.moe/dlsite/v2"
+	"go.felesatra.moe/dlsite/v2/codes"
 )
 
 type mvCmd struct {
@@ -55,22 +56,25 @@ func (c *mvCmd) Execute(ctx context.Context, f *flag.FlagSet, _ ...interface{}) 
 	} else {
 		s = path
 	}
-	r := dlsite.Parse(s)
+	r := codes.ParseRJCode(s)
 	if r == "" {
-		fmt.Fprintf(os.Stderr, "invalid RJ code %s\n", s)
+		log.Printf("Invalid RJ code %s", s)
 		return subcommands.ExitUsageError
 	}
 	if err := mvMain(path, r); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+		log.Printf("Error: %s", err)
 		return subcommands.ExitFailure
 	}
 	return subcommands.ExitSuccess
 }
 
-func mvMain(path string, r dlsite.RJCode) error {
-	c := dsutil.DefaultCache()
-	defer c.Close()
-	w, err := dsutil.Fetch(c, r)
+func mvMain(path string, r codes.RJCode) error {
+	df, err := dlsite.NewFetcher()
+	if err != nil {
+		return fmt.Errorf("fetch work info: %w", err)
+	}
+	defer df.FlushCache()
+	w, err := df.FetchWork(codes.WorkCode(r))
 	if err != nil {
 		return fmt.Errorf("fetch work info: %w", err)
 	}

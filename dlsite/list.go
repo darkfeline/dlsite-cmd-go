@@ -20,12 +20,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 
 	"github.com/google/subcommands"
 
-	"go.felesatra.moe/dlsite"
-	"go.felesatra.moe/dlsite/dsutil"
+	"go.felesatra.moe/dlsite/v2"
+	"go.felesatra.moe/dlsite/v2/codes"
 )
 
 type listCmd struct {
@@ -46,7 +47,7 @@ func (c *listCmd) SetFlags(f *flag.FlagSet) {
 
 func (c *listCmd) Execute(ctx context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
 	if err := listMain(c); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %s", err)
+		log.Printf("Error: %s", err)
 		return subcommands.ExitFailure
 	}
 	return subcommands.ExitSuccess
@@ -54,12 +55,15 @@ func (c *listCmd) Execute(ctx context.Context, f *flag.FlagSet, _ ...interface{}
 
 func listMain(c *listCmd) error {
 	if c.fetchInfo {
-		c := dsutil.DefaultCache()
-		defer c.Close()
-		return mapCodes(os.Stdin, func(r dlsite.RJCode) error {
-			w, err := dsutil.Fetch(c, r)
+		df, err := dlsite.NewFetcher()
+		if err != nil {
+			return fmt.Errorf("fetch work info: %w", err)
+		}
+		defer df.FlushCache()
+		return mapCodes(os.Stdin, func(r codes.RJCode) error {
+			w, err := df.FetchWork(codes.WorkCode(r))
 			if err != nil {
-				return fmt.Errorf("fetch work: %w", err)
+				return fmt.Errorf("fetch work info: %w", err)
 			}
 			printWork(os.Stdout, w)
 			os.Stdout.Write([]byte("\n"))
@@ -67,17 +71,17 @@ func listMain(c *listCmd) error {
 		})
 
 	} else {
-		return mapCodes(os.Stdin, func(r dlsite.RJCode) error {
+		return mapCodes(os.Stdin, func(r codes.RJCode) error {
 			fmt.Println(r)
 			return nil
 		})
 	}
 }
 
-func mapCodes(r io.Reader, f func(dlsite.RJCode) error) error {
+func mapCodes(r io.Reader, f func(codes.RJCode) error) error {
 	s := bufio.NewScanner(r)
 	for s.Scan() {
-		r := dlsite.Parse(s.Text())
+		r := codes.ParseRJCode(s.Text())
 		if err := f(r); err != nil {
 			return err
 		}

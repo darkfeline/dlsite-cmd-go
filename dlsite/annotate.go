@@ -19,12 +19,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/google/subcommands"
 
-	"go.felesatra.moe/dlsite"
-	"go.felesatra.moe/dlsite/dsutil"
+	"go.felesatra.moe/dlsite/v2"
+	"go.felesatra.moe/dlsite/v2/codes"
 )
 
 type annotateCmd struct{}
@@ -40,30 +41,34 @@ Annotate DLSite codes from stdin with work info.
 func (*annotateCmd) SetFlags(f *flag.FlagSet) {}
 
 func (c *annotateCmd) Execute(ctx context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
-	cache := dsutil.DefaultCache()
-	defer cache.Close()
+	df, err := dlsite.NewFetcher()
+	if err != nil {
+		log.Printf("Error making fetcher: %s", err)
+		return subcommands.ExitFailure
+	}
+	defer df.FlushCache()
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		line := scanner.Text()
-		r := dlsite.Parse(line)
-		if r == "" {
+		c := codes.ParseRJCode(line)
+		if c == "" {
 			fmt.Println(line)
 			continue
 		}
-		w, err := dsutil.Fetch(cache, r)
+		w, err := df.FetchWork(codes.WorkCode(c))
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "Error fetching work info:", err)
+			log.Printf("Error fetching work info: %s", err)
 			continue
 		}
 		fmt.Println(workInfoString(w))
 	}
 	if err := scanner.Err(); err != nil {
-		fmt.Fprintln(os.Stderr, "Error reading stdin:", err)
+		log.Printf("Error reading stdin: %s", err)
 		return subcommands.ExitFailure
 	}
 	return subcommands.ExitSuccess
 }
 
 func workInfoString(w *dlsite.Work) string {
-	return fmt.Sprintf("%s [%s] %s", w.RJCode, w.Maker, w.Name)
+	return fmt.Sprintf("%s [%s] %s", w.Code, w.Circle, w.Title)
 }
