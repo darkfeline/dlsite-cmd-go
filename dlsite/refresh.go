@@ -15,16 +15,18 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"flag"
-	"fmt"
+	"io"
+	"log"
 	"math/rand"
 	"os"
 	"time"
 
 	"github.com/google/subcommands"
-	"go.felesatra.moe/dlsite"
-	"go.felesatra.moe/dlsite/cache"
+	"go.felesatra.moe/dlsite/v2"
+	"go.felesatra.moe/dlsite/v2/codes"
 )
 
 type refreshCmd struct {
@@ -41,39 +43,38 @@ Refresh the DLSite info cache.
 func (*refreshCmd) SetFlags(f *flag.FlagSet) {}
 
 func (c *refreshCmd) Execute(ctx context.Context, f *flag.FlagSet, _ ...interface{}) subcommands.ExitStatus {
-	ch, err := cache.OpenDefault()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+	if err := refreshWorks(os.Stdin); err != nil {
+		log.Printf("Error: %s", err)
 		return subcommands.ExitFailure
-	}
-	defer ch.Close()
-	ks, err := ch.Keys()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
-		return subcommands.ExitFailure
-	}
-	rand.Seed(time.Now().UnixNano())
-	const sleepMax = 2 * time.Second
-	for _, k := range ks {
-		time.Sleep(time.Duration(rand.Int63n(int64(sleepMax))))
-		fmt.Fprintf(os.Stderr, "Refreshing %s\n", k)
-		if err := refreshWork(ch, k); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %s\n", err)
-			continue
-		}
 	}
 	return subcommands.ExitSuccess
 }
 
-func refreshWork(c *cache.Cache, r dlsite.RJCode) error {
-	w, err := dlsite.Fetch(r)
+func refreshWorks(r io.Reader) error {
+	df, err := dlsite.NewFetcher()
 	if err != nil {
-		return fmt.Errorf("refresh work %v: %w", r, err)
+		return err
 	}
-	if err := c.Put(w); err != nil {
-
-		return fmt.Errorf("refresh work %v: %w", r, err)
-
+	defer df.FlushCache()
+	rand.Seed(time.Now().UnixNano())
+	const sleepMax = 2 * time.Second
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		line := scanner.Text()
+		c := codes.ParseRJCode(line)
+		if c == "" {
+			log.Printf("Bad line %s", line)
+			continue
+		}
+		time.Sleep(time.Duration(rand.Int63n(int64(sleepMax))))
+		log.Printf("Refreshing %s", c)
+		if _, err := df.FetchWork(codes.WorkCode(c)); err != nil {
+			log.Printf("Error: %s", err)
+			continue
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return err
 	}
 	return nil
 }
