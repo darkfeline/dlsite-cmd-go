@@ -51,7 +51,7 @@ func (c *refreshCmd) Execute(ctx context.Context, f *flag.FlagSet, _ ...interfac
 }
 
 func refreshWorks(r io.Reader) error {
-	df, err := dlsite.NewFetcher()
+	df, err := dlsite.NewFetcher(dlsite.ForceFresh())
 	if err != nil {
 		return err
 	}
