@@ -51,7 +51,7 @@ func (c *refreshCmd) Execute(ctx context.Context, f *flag.FlagSet, _ ...interfac
 }
 
 func refreshWorks(r io.Reader) error {
-	df, err := dlsite.NewFetcher(dlsite.ForceFresh())
+	df, err := dlsite.NewFetcher()
 	if err != nil {
 		return err
 	}
@@ -68,7 +68,7 @@ func refreshWorks(r io.Reader) error {
 		}
 		time.Sleep(time.Duration(rand.Int63n(int64(sleepMax))))
 		log.Printf("Refreshing %s", c)
-		if _, err := df.FetchWork(codes.WorkCode(c)); err != nil {
+		if _, err := df.FetchWork(codes.WorkCode(c), dlsite.IgnoreCache()); err != nil {
 			log.Printf("Error: %s", err)
 			continue
 		}
