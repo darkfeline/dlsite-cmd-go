@@ -13,6 +13,8 @@
 // limitations under the License.
 
 // Command dlsite provides dlsite utilities.
+//
+// Deprecated: Use go.felesatra.moe/dlsite/cmd/dlsite instead.
 package main
 
 import (
